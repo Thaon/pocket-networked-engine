@@ -103,6 +103,9 @@ class EngineCore {
   Start = () => {
     this.Game.Setup();
     this.rooms[this.currentRoom]?.initRoom();
+    this.rooms[this.currentRoom]?.objects.forEach((object) => {
+      object.Start();
+    });
   };
 
   Update = () => {
