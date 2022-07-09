@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="engine/config.js"></script>
+    <script src="https://unpkg.com/konva@8.3.5/konva.min.js"></script>
+    <meta charset="utf-8" />
+    <title>Editor</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #858585;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container"></div>
+    <script>
+      var width = config.view_width;
+      var height = config.view_height;
+      var GUIDELINE_OFFSET = 5;
+
+      var stage = new Konva.Stage({
+        container: "container",
+        width: width,
+        height: height,
+        draggable: true,
+      });
+
+      stage.container().style.backgroundColor = "#fff";
+
+      var layer = new Konva.Layer();
+      var group = new Konva.Group({});
+      layer.add(group);
+      stage.add(layer);
+
+      // zoom -------------------------------------------------------------
+      stage.on("wheel", (e) => {
+        var scaleBy = 1.1;
+        // stop default scrolling
+        e.evt.preventDefault();
+
+        var oldScale = stage.scaleX();
+        var pointer = stage.getPointerPosition();
+
+        var mousePointTo = {
+          x: (pointer.x - stage.x()) / oldScale,
+          y: (pointer.y - stage.y()) / oldScale,
+        };
+
+        // how to scale? Zoom in? Or zoom out?
+        let direction = e.evt.deltaY > 0 ? 1 : -1;
+
+        // when we zoom on trackpad, e.evt.ctrlKey is true
+        // in that case lets revert direction
+        if (e.evt.ctrlKey) {
+          direction = -direction;
+        }
+
+        var newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
+
+        stage.scale({ x: newScale, y: newScale });
+
+        var newPos = {
+          x: pointer.x - mousePointTo.x * newScale,
+          y: pointer.y - mousePointTo.y * newScale,
+        };
+        stage.position(newPos);
+      });
+
+      // object creation
+      function createObject(X, Y, url) {
+        let imgObj = new Image();
+        imgObj.onload = function () {
+          let obj = new Konva.Image({
+            x: X - 50,
+            y: Y - 50,
+            width: 100,
+            height: 100,
+            image: imgObj,
+            sprite: "player",
+            //   fill: Konva.Util.getRandomColor(),
+            rotation: 0,
+            draggable: true,
+            name: "object",
+          });
+          group.add(obj);
+        };
+        imgObj.src = url;
+      }
+
+      // transforms ------------------------------------------------------
+      var tr = new Konva.Transformer({
+        keepRatio: false,
+        centeredScaling: true,
+        rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315],
+      });
+      layer.add(tr);
+
+      // clicks should select/deselect shapes
+      stage.on("click tap", function (e) {
+        // if click on empty area - remove all selections
+        if (e.target === stage) {
+          tr.nodes([]);
+
+          // create new shape
+          createObject(
+            group.getRelativePointerPosition().x,
+            group.getRelativePointerPosition().y,
+            "assets/circle.png"
+          );
+
+          return;
+        }
+
+        // do nothing if clicked NOT on our rectangles
+        if (!e.target.hasName("object")) {
+          return;
+        }
+
+        // do we pressed shift or ctrl?
+        const metaPressed = e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey;
+        const isSelected = tr.nodes().indexOf(e.target) >= 0;
+
+        if (!metaPressed && !isSelected) {
+          // if no key pressed and the node is not selected
+          // select just one
+          tr.nodes([e.target]);
+        } else if (metaPressed && isSelected) {
+          // if we pressed keys and node was selected
+          // we need to remove it from selection:
+          const nodes = tr.nodes().slice(); // use slice to have new copy of array
+          // remove node from array
+          nodes.splice(nodes.indexOf(e.target), 1);
+          tr.nodes(nodes);
+        } else if (metaPressed && !isSelected) {
+          // add the node into selection
+          const nodes = tr.nodes().concat([e.target]);
+          tr.nodes(nodes);
+        }
+      });
+
+      // snap to grid ------------------------------------------------------
+      function getLineGuideStops(skipShape) {
+        // we can snap to stage borders and the center of the stage
+        var vertical = [0, stage.width() / 2, stage.width()];
+        var horizontal = [0, stage.height() / 2, stage.height()];
+
+        // and we snap over edges and center of each object on the canvas
+        stage.find(".object").forEach((guideItem) => {
+          if (guideItem === skipShape) {
+            return;
+          }
+          var box = guideItem.getClientRect();
+          // and we can snap to all edges of shapes
+          vertical.push([box.x, box.x + box.width, box.x + box.width / 2]);
+          horizontal.push([box.y, box.y + box.height, box.y + box.height / 2]);
+        });
+        return {
+          vertical: vertical.flat(),
+          horizontal: horizontal.flat(),
+        };
+      }
+
+      // what points of the object will trigger to snapping?
+      // it can be just center of the object
+      // but we will enable all edges and center
+      function getObjectSnappingEdges(node) {
+        var box = node.getClientRect();
+        var absPos = node.absolutePosition();
+
+        return {
+          vertical: [
+            {
+              guide: Math.round(box.x),
+              offset: Math.round(absPos.x - box.x),
+              snap: "start",
+            },
+            {
+              guide: Math.round(box.x + box.width / 2),
+              offset: Math.round(absPos.x - box.x - box.width / 2),
+              snap: "center",
+            },
+            {
+              guide: Math.round(box.x + box.width),
+              offset: Math.round(absPos.x - box.x - box.width),
+              snap: "end",
+            },
+          ],
+          horizontal: [
+            {
+              guide: Math.round(box.y),
+              offset: Math.round(absPos.y - box.y),
+              snap: "start",
+            },
+            {
+              guide: Math.round(box.y + box.height / 2),
+              offset: Math.round(absPos.y - box.y - box.height / 2),
+              snap: "center",
+            },
+            {
+              guide: Math.round(box.y + box.height),
+              offset: Math.round(absPos.y - box.y - box.height),
+              snap: "end",
+            },
+          ],
+        };
+      }
+
+      // find all snapping possibilities
+      function getGuides(lineGuideStops, itemBounds) {
+        var resultV = [];
+        var resultH = [];
+
+        lineGuideStops.vertical.forEach((lineGuide) => {
+          itemBounds.vertical.forEach((itemBound) => {
+            var diff = Math.abs(lineGuide - itemBound.guide);
+            // if the distance between guild line and object snap point is close we can consider this for snapping
+            if (diff < GUIDELINE_OFFSET) {
+              resultV.push({
+                lineGuide: lineGuide,
+                diff: diff,
+                snap: itemBound.snap,
+                offset: itemBound.offset,
+              });
+            }
+          });
+        });
+
+        lineGuideStops.horizontal.forEach((lineGuide) => {
+          itemBounds.horizontal.forEach((itemBound) => {
+            var diff = Math.abs(lineGuide - itemBound.guide);
+            if (diff < GUIDELINE_OFFSET) {
+              resultH.push({
+                lineGuide: lineGuide,
+                diff: diff,
+                snap: itemBound.snap,
+                offset: itemBound.offset,
+              });
+            }
+          });
+        });
+
+        var guides = [];
+
+        // find closest snap
+        var minV = resultV.sort((a, b) => a.diff - b.diff)[0];
+        var minH = resultH.sort((a, b) => a.diff - b.diff)[0];
+        if (minV) {
+          guides.push({
+            lineGuide: minV.lineGuide,
+            offset: minV.offset,
+            orientation: "V",
+            snap: minV.snap,
+          });
+        }
+        if (minH) {
+          guides.push({
+            lineGuide: minH.lineGuide,
+            offset: minH.offset,
+            orientation: "H",
+            snap: minH.snap,
+          });
+        }
+        return guides;
+      }
+
+      layer.on("dragmove", function (e) {
+        // clear all previous lines on the screen
+        layer.find(".guid-line").forEach((l) => l.destroy());
+
+        // find possible snapping lines
+        var lineGuideStops = getLineGuideStops(e.target);
+        // find snapping points of current object
+        var itemBounds = getObjectSnappingEdges(e.target);
+
+        // now find where can we snap current object
+        var guides = getGuides(lineGuideStops, itemBounds);
+
+        // do nothing of no snapping
+        if (!guides.length) {
+          return;
+        }
+
+        var absPos = e.target.absolutePosition();
+        // now force object position
+        guides.forEach((lg) => {
+          switch (lg.snap) {
+            case "start": {
+              switch (lg.orientation) {
+                case "V": {
+                  absPos.x = lg.lineGuide + lg.offset;
+                  break;
+                }
+                case "H": {
+                  absPos.y = lg.lineGuide + lg.offset;
+                  break;
+                }
+              }
+              break;
+            }
+            case "center": {
+              switch (lg.orientation) {
+                case "V": {
+                  absPos.x = lg.lineGuide + lg.offset;
+                  break;
+                }
+                case "H": {
+                  absPos.y = lg.lineGuide + lg.offset;
+                  break;
+                }
+              }
+              break;
+            }
+            case "end": {
+              switch (lg.orientation) {
+                case "V": {
+                  absPos.x = lg.lineGuide + lg.offset;
+                  break;
+                }
+                case "H": {
+                  absPos.y = lg.lineGuide + lg.offset;
+                  break;
+                }
+              }
+              break;
+            }
+          }
+        });
+        e.target.absolutePosition(absPos);
+      });
+
+      layer.on("dragend", function (e) {
+        // clear all previous lines on the screen
+        layer.find(".guid-line").forEach((l) => l.destroy());
+        let toExport = stage.find(".object").map((o, index) => {
+          return {
+            index: index,
+            x: o.attrs.x,
+            y: o.attrs.y,
+            width: o.attrs.width,
+            height: o.attrs.height,
+            scaleX: o.attrs.scaleX,
+            scaleY: o.attrs.scaleY,
+            rotation: o.attrs.rotation,
+          };
+        });
+        console.log(toExport);
+
+        // var json = stage.toJSON();
+        // console.log(stage);
+      });
+    </script>
+  </body>
+</html>

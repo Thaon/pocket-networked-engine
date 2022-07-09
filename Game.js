@@ -22,10 +22,9 @@ const Game = {
       circle.x = pos.x;
       circle.y = pos.y;
     };
+
     circle.OnClick = () => {
-      circle.x = mouseX;
-      circle.y = mouseY;
-      Engine.SetNetVar("position", { x: circle.x, y: circle.y });
+      Engine.SetNetVar("position", { x: mouseX, y: mouseY });
     };
 
     Engine.Instantiate(circle);
